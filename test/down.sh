@@ -1,62 +1,53 @@
 #!/bin/bash
 
-set -e
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-cd ~/environment/ecsdemo-crystal
-mu pipeline term
+require_env MU_NAMESPACE
+require_dir "$ENVIRONMENT_DIR"
 
-cd ~/environment/ecsdemo-nodejs
-mu pipeline term
+for app in crystal nodejs frontend; do
+  banner "Beginning ${app} pipeline term"
+  cd "${ENVIRONMENT_DIR}/ecsdemo-${app}"
+  mu pipeline term
+done
 
-echo "================================"
-echo "Beginning frontend pipeline term at $(date)"
-cd ~/environment/ecsdemo-frontend
-mu pipeline term
-
-echo "================================"
-echo "Beginning acceptance platform term at $(date)"
-cd ~/environment/ecsdemo-platform
+banner "Beginning acceptance platform term"
+cd "${ENVIRONMENT_DIR}/ecsdemo-platform"
 mu env term acceptance
-echo "================================"
-echo "Beginning production platform term at $(date)"
+
+banner "Beginning production platform term"
 mu env term production
 
-echo "================================"
-echo "Beginning ecr repo delete at $(date)"
-aws ecr delete-repository --repository-nam ${MU_NAMESPACE}-ecsdemo-frontend --force || true
-aws ecr delete-repository --repository-nam ${MU_NAMESPACE}-ecsdemo-nodejs --force || true
-aws ecr delete-repository --repository-nam ${MU_NAMESPACE}-ecsdemo-crystal --force ||true
+banner "Beginning ecr repo delete"
+for app in frontend nodejs crystal; do
+  ignore_missing aws ecr delete-repository --repository-name "${MU_NAMESPACE}-ecsdemo-${app}" --force
+done
 
-echo "================================"
-echo "Beginning s3 bucket delete at $(date)"
-export REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed 's/\(.*\)[a-z]/\1/'
-)
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-aws s3 rm --recursive s3://${MU_NAMESPACE}-codedeploy-${REGION}-${ACCOUNT_ID}
-aws s3 rm --recursive s3://${MU_NAMESPACE}-codepipeline-${REGION}-${ACCOUNT_ID}
+banner "Beginning s3 bucket delete"
+REGION=$(current_region)
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
-echo "================================"
-echo "Beginning cf stack delete at $(date)"
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-frontend-acceptance
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-frontend-production
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-nodejs-acceptance
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-nodejs-production
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-crystal-acceptance
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-crystal-production
+for bucket in codedeploy codepipeline; do
+  ignore_missing aws s3 rm --recursive "s3://${MU_NAMESPACE}-${bucket}-${REGION}-${ACCOUNT_ID}"
+done
 
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-repo-ecsdemo-frontend
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-repo-ecsdemo-nodejs
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-repo-ecsdemo-crystal
+banner "Beginning cf stack delete"
+for app in frontend nodejs crystal; do
+  for env in acceptance production; do
+    ignore_missing aws cloudformation delete-stack \
+      --stack-name "${MU_NAMESPACE}-iam-service-ecsdemo-${app}-${env}"
+  done
+  ignore_missing aws cloudformation delete-stack --stack-name "${MU_NAMESPACE}-repo-ecsdemo-${app}"
+done
 
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-bucket-codedeploy
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-bucket-codepipeline
+for bucket in codedeploy codepipeline; do
+  ignore_missing aws cloudformation delete-stack --stack-name "${MU_NAMESPACE}-bucket-${bucket}"
+done
 
-echo "================================"
-echo "Beginning sleep 300 at $(date)"
+banner "Beginning sleep 300"
 sleep 300 # delay waiting for all the other CF stacks to be deleted -- replace with a count of stacks or something
 
-echo "================================"
-echo "Beginning iam-common stack delete at $(date)"
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-common
-echo "================================"
-echo "Teardown complete at $(date)"
+banner "Beginning iam-common stack delete"
+ignore_missing aws cloudformation delete-stack --stack-name "${MU_NAMESPACE}-iam-common"
+
+banner "Teardown complete"

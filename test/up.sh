@@ -1,26 +1,21 @@
 #!/bin/bash
 
-set -e
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-echo "================================"
-echo "Beginning acceptance platform build at $(date)"
-cd ~/environment/ecsdemo-platform
+require_env GITHUB_TOKEN
+require_dir "$ENVIRONMENT_DIR"
+
+banner "Beginning acceptance platform build"
+cd "${ENVIRONMENT_DIR}/ecsdemo-platform"
 mu env up acceptance
-echo "================================"
-echo "Beginning production platform build at $(date)"
+
+banner "Beginning production platform build"
 mu env up production
 
-echo "================================"
-echo "Beginning frontend pipeline build at $(date)"
-cd ~/environment/ecsdemo-frontend
-mu pipeline up -t $GITHUB_TOKEN
+for app in frontend nodejs crystal; do
+  banner "Beginning ${app} pipeline build"
+  cd "${ENVIRONMENT_DIR}/ecsdemo-${app}"
+  mu pipeline up -t "$GITHUB_TOKEN"
+done
 
-echo "================================"
-echo "Beginning nodejs pipeline build at $(date)"
-cd ~/environment/ecsdemo-nodejs
-mu pipeline up -t $GITHUB_TOKEN
-
-echo "================================"
-echo "Beginning crystal pipeline build at $(date)"
-cd ~/environment/ecsdemo-crystal
-mu pipeline up -t $GITHUB_TOKEN
+banner "Build complete"
