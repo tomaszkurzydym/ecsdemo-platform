@@ -2,25 +2,16 @@
 
 set -e
 
-echo "================================"
-echo "Beginning acceptance platform build at $(date)"
-cd ~/environment/ecsdemo-platform
-mu env up acceptance
-echo "================================"
-echo "Beginning production platform build at $(date)"
-mu env up production
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-echo "================================"
-echo "Beginning frontend pipeline build at $(date)"
-cd ~/environment/ecsdemo-frontend
-mu pipeline up -t $GITHUB_TOKEN
+enter_repo "${PLATFORM_REPO}"
+for environment in "${MU_ENVIRONMENTS[@]}"; do
+  log_step "Beginning ${environment} platform build"
+  mu env up "${environment}"
+done
 
-echo "================================"
-echo "Beginning nodejs pipeline build at $(date)"
-cd ~/environment/ecsdemo-nodejs
-mu pipeline up -t $GITHUB_TOKEN
-
-echo "================================"
-echo "Beginning crystal pipeline build at $(date)"
-cd ~/environment/ecsdemo-crystal
-mu pipeline up -t $GITHUB_TOKEN
+for service in "${MU_SERVICES[@]}"; do
+  log_step "Beginning ${service} pipeline build"
+  enter_repo "${service}"
+  mu pipeline up -t "${GITHUB_TOKEN}"
+done
