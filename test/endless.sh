@@ -1,5 +1,9 @@
 #!/bin/bash
 
+set -uo pipefail
+
+cd "$(dirname "$0")" || exit 1
+
 count=1
 
 while true; do
