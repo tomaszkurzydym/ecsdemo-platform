@@ -2,61 +2,52 @@
 
 set -e
 
-cd ~/environment/ecsdemo-crystal
-mu pipeline term
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-cd ~/environment/ecsdemo-nodejs
-mu pipeline term
+while read -r service; do
+  log_step "Beginning ${service} pipeline term"
+  enter_repo "${service}"
+  mu pipeline term
+done < <(mu_services_reversed)
 
-echo "================================"
-echo "Beginning frontend pipeline term at $(date)"
-cd ~/environment/ecsdemo-frontend
-mu pipeline term
+enter_repo "${PLATFORM_REPO}"
+for environment in "${MU_ENVIRONMENTS[@]}"; do
+  log_step "Beginning ${environment} platform term"
+  mu env term "${environment}"
+done
 
-echo "================================"
-echo "Beginning acceptance platform term at $(date)"
-cd ~/environment/ecsdemo-platform
-mu env term acceptance
-echo "================================"
-echo "Beginning production platform term at $(date)"
-mu env term production
+log_step "Beginning ecr repo delete"
+for service in "${MU_SERVICES[@]}"; do
+  delete_ecr_repository "${MU_NAMESPACE}-${service}"
+done
 
-echo "================================"
-echo "Beginning ecr repo delete at $(date)"
-aws ecr delete-repository --repository-nam ${MU_NAMESPACE}-ecsdemo-frontend --force || true
-aws ecr delete-repository --repository-nam ${MU_NAMESPACE}-ecsdemo-nodejs --force || true
-aws ecr delete-repository --repository-nam ${MU_NAMESPACE}-ecsdemo-crystal --force ||true
+log_step "Beginning s3 bucket delete"
+REGION=$(aws_region)
+ACCOUNT_ID=$(aws_account_id)
+export REGION ACCOUNT_ID
+for bucket in codedeploy codepipeline; do
+  empty_bucket "${MU_NAMESPACE}-${bucket}-${REGION}-${ACCOUNT_ID}"
+done
 
-echo "================================"
-echo "Beginning s3 bucket delete at $(date)"
-export REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed 's/\(.*\)[a-z]/\1/'
-)
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-aws s3 rm --recursive s3://${MU_NAMESPACE}-codedeploy-${REGION}-${ACCOUNT_ID}
-aws s3 rm --recursive s3://${MU_NAMESPACE}-codepipeline-${REGION}-${ACCOUNT_ID}
+log_step "Beginning cf stack delete"
+for service in "${MU_SERVICES[@]}"; do
+  for environment in "${MU_ENVIRONMENTS[@]}"; do
+    delete_stack "${MU_NAMESPACE}-iam-service-${service}-${environment}"
+  done
+done
 
-echo "================================"
-echo "Beginning cf stack delete at $(date)"
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-frontend-acceptance
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-frontend-production
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-nodejs-acceptance
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-nodejs-production
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-crystal-acceptance
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-service-ecsdemo-crystal-production
+for service in "${MU_SERVICES[@]}"; do
+  delete_stack "${MU_NAMESPACE}-repo-${service}"
+done
 
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-repo-ecsdemo-frontend
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-repo-ecsdemo-nodejs
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-repo-ecsdemo-crystal
+for bucket in codedeploy codepipeline; do
+  delete_stack "${MU_NAMESPACE}-bucket-${bucket}"
+done
 
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-bucket-codedeploy
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-bucket-codepipeline
+# delay waiting for all the other CF stacks to be deleted -- replace with a count of stacks or something
+log_step "Beginning sleep 300"
+sleep 300
 
-echo "================================"
-echo "Beginning sleep 300 at $(date)"
-sleep 300 # delay waiting for all the other CF stacks to be deleted -- replace with a count of stacks or something
-
-echo "================================"
-echo "Beginning iam-common stack delete at $(date)"
-aws cloudformation delete-stack --stack-name ${MU_NAMESPACE}-iam-common
-echo "================================"
-echo "Teardown complete at $(date)"
+log_step "Beginning iam-common stack delete"
+delete_stack "${MU_NAMESPACE}-iam-common"
+log_step "Teardown complete"
